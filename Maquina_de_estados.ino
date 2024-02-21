@@ -5,9 +5,31 @@
 #define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
 DHT dht(DHTPIN, DHTTYPE);
 int sensorPin = A0;    // select the input pin for the potentiometer
-
 #include "AsyncTaskLib.h"
+#include <LiquidCrystal.h>
+#include <Keypad.h>
 
+/* Display */
+LiquidCrystal lcd(12, 11, 10, 9, 8, 7);
+
+/* Keypad setup */
+const byte KEYPAD_ROWS = 4;
+const byte KEYPAD_COLS = 4;
+byte rowPins[KEYPAD_ROWS] = {5, 4, 3, 2}; //R1 = 5, R2 = 4, R3 = 3. R4 = 2
+byte colPins[KEYPAD_COLS] = {A3, A2, A1, A0};
+char keys[KEYPAD_ROWS][KEYPAD_COLS] = {
+  {'1', '2', '3', 'A'},
+  {'4', '5', '6', 'B'},
+  {'7', '8', '9', 'C'},
+  {'*', '0', '#', 'D'}
+};
+
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, KEYPAD_ROWS, KEYPAD_COLS);
+
+char correctPassword[] = "1234"; // Clave correcta
+char enteredPassword[5]; // Se reservan 5 caracteres para almacenar la clave ingresada (incluyendo el carácter nulo de terminación)
+byte passwordAttempts = 0; // Contador de intentos de clave incorrecta
+boolean passwordReady = false; // Bandera para indicar que la contraseña está lista para ser validada
 
 // State Alias
 enum State
@@ -73,12 +95,19 @@ AsyncTask Task1(2300, true, Sensores);
 void readPhoto(void);
 AsyncTask Task2(1000, true, readPhoto);
 
+const byte greenLed = A6;
 const byte blueLed = A5;
 const byte redLed = A4;
 
 
 void setup() 
 {
+  lcd.begin(16, 2);
+
+  lcd.setCursor(1, 0);
+  lcd.print("INGRESA CLAVE:");
+  lcd.setCursor(6, 1);
+
   Serial.begin(9600);
 
   Serial.println("Starting State Machine...");
@@ -88,11 +117,11 @@ void setup()
   // Initial state
   stateMachine.SetState(Inicio, false, true);
   
+  pinMode(greenLed, OUTPUT);
   pinMode(blueLed, OUTPUT);
   pinMode(redLed, OUTPUT);
   
   dht.begin();
-  asyncTask.Start();
   Task1.Start();
   Task2.Start();
 }
@@ -105,7 +134,6 @@ void loop()
   // Update State Machine
   stateMachine.Update();
   //asignar tareas asincronicas
-  asyncTask.Update();
   Task1.Update();
   Task2.Update();
 }
@@ -199,7 +227,7 @@ void readPhoto(){
 }
 
 
-void Sensores(void){ 
+void Sensores(){ 
   //Temperatura
   Serial.println("hello read temp");
   // Wait a few seconds between measurements.g
