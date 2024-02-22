@@ -59,7 +59,7 @@ Input input;
 void setupStateMachine()
 {
   // Add transitions
-  stateMachine.AddTransition(Inicio, Monitoreo, []() { return passwordReady; });
+  stateMachine.AddTransition(Inicio, Monitoreo, []() { return input == Forward; });
   stateMachine.AddTransition(Inicio, Bloqueado, []() { return input == Forward; });
   stateMachine.AddTransition(Inicio, Bloqueado, []() { return input == Backward; });
 
@@ -78,6 +78,7 @@ void setupStateMachine()
   
   // Add actions
   stateMachine.SetOnEntering(Inicio, Contrasena);//llamar función del estado
+  stateMachine.SetOnEntering(Monitoreo, initTasks);
   stateMachine.SetOnEntering(Monitoreo, Sensores);
   stateMachine.SetOnEntering(Monitoreo, readPhoto);
   stateMachine.SetOnEntering(Alarma, alarma);
@@ -122,8 +123,6 @@ void setup()
   pinMode(redLed, OUTPUT);
   
   dht.begin();
-  Task1.Start();
-  Task2.Start();
 }
 
 void loop() 
@@ -189,6 +188,9 @@ void Contrasena() {
       digitalWrite(greenLed, HIGH);
       delay(5000);
       digitalWrite(greenLed, LOW); // Apagar el LED verde
+      stateMachine.SetOnEntering(Monitoreo, initTasks);
+      stateMachine.SetOnEntering(Monitoreo, Sensores);
+      stateMachine.SetOnEntering(Monitoreo, readPhoto);
     } else { // Si la clave ingresada es incorrecta
       passwordAttempts++;
       if (passwordAttempts >= 3) { // Si se superaron los 3 intentos
@@ -197,9 +199,7 @@ void Contrasena() {
         lcd.print("SISTEMA");
         lcd.setCursor(3, 1);
         lcd.print("BLOQUEADO");
-        digitalWrite(redLed, HIGH);
-        delay(10000);
-        digitalWrite(redLed, LOW); // Apagar el LED rojo
+        stateMachine.SetOnEntering(Bloqueado, Bloq);
       } else {
         lcd.clear();
         lcd.setCursor(5, 0);
@@ -220,10 +220,21 @@ void Contrasena() {
   }
 }
 
+void initTasks(){
+   Task1.Start(); 
+   Task2.Start(); 
+}
+
 void readPhoto(){
   Serial.println("hello read Photo: ");
   int sensorValue = analogRead(sensorPin);
   Serial.println(sensorValue);
+
+  float t = dht.readTemperature();
+
+  if (sensorValue < 40 && t > 32) { 
+    stateMachine.SetOnEntering(Bloqueado, Bloq); // Cambiar al estado Bloqueado
+  }
 }
 
 
@@ -263,19 +274,58 @@ void Sensores(){
   Serial.print(hif);
   Serial.println(F("°F"));
 
-  if(t>30){
-    
+  if(t > 30){
+    stateMachine.SetOnEntering(Alarma, alarma);
   }
 }
 
 void alarma(){
-  digitalWrite(blueLed, HIGH);
-  delay(500);
-  digitalWrite(blueLed, LOW);
+  
+  Task1.Stop();
+  Task2.Stop();
+
+  unsigned long previousMillis = 0;
+
+  for(int i=0; i<3; i++) {
+
+    // Enciende led
+    digitalWrite(blueLed, HIGH);  
+
+    // Espera medio segundo
+    unsigned long currentMillis = millis();
+    while(currentMillis - previousMillis <= 500) {
+      currentMillis = millis(); 
+    }
+    previousMillis = currentMillis;
+
+    // Apaga led    
+    digitalWrite(blueLed, LOW);
+
+  }
+  stateMachine.SetOnEntering(Monitoreo, initTasks);
+  stateMachine.SetOnEntering(Monitoreo, Sensores);
+  stateMachine.SetOnEntering(Monitoreo, readPhoto);
 }
 
 void Bloq(){
-  digitalWrite(redLed, HIGH);
-  delay(800);
-  digitalWrite(redLed, LOW);
+  unsigned long previousMillis = 0;
+
+  for(int i=0; i<6; i++) {
+
+    // Enciende led
+    digitalWrite(redLed, HIGH);  
+
+    // Espera medio segundo
+    unsigned long currentMillis = millis();
+    while(currentMillis - previousMillis <= 800) {
+      currentMillis = millis(); 
+    }
+    previousMillis = currentMillis;
+
+    // Apaga led    
+    digitalWrite(redLed, LOW);
+
+  }
+
+  
 }
