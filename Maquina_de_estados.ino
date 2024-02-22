@@ -4,6 +4,7 @@
 //#define DHTTYPE DHT11   // DHT 11
 #define DHTTYPE DHT22   // DHT 22  (AM2302), AM2321
 DHT dht(DHTPIN, DHTTYPE);
+int potenciometerPin = A1;
 int sensorPin = A0;    // select the input pin for the potentiometer
 #include "AsyncTaskLib.h"
 #include <LiquidCrystal.h>
@@ -47,6 +48,8 @@ enum Input
   Forward = 1,
   Backward = 2,
   Unknown = 3,
+  Forward2 = 4,
+  Backward2 = 5,
 };
 
 // Create new StateMachine
@@ -60,12 +63,12 @@ void setupStateMachine()
 {
   // Add transitions
   stateMachine.AddTransition(Inicio, Monitoreo, []() { return input == Forward; });
-  stateMachine.AddTransition(Inicio, Bloqueado, []() { return input == Forward; });
+  stateMachine.AddTransition(Inicio, Bloqueado, []() { return input == Forward2; });
   stateMachine.AddTransition(Inicio, Bloqueado, []() { return input == Backward; });
 
   stateMachine.AddTransition(Monitoreo, Alarma, []() { return input == Forward; });
   stateMachine.AddTransition(Monitoreo, Alarma, []() { return input == Backward; });
-  stateMachine.AddTransition(Monitoreo, Bloqueado, []() { return input == Forward; });
+  stateMachine.AddTransition(Monitoreo, Bloqueado, []() { return input == Forward2; });
   stateMachine.AddTransition(Monitoreo, Bloqueado, []() { return input == Backward; });
   
   stateMachine.AddTransition(Alarma, Monitoreo, []() { return input == Backward; });
@@ -73,21 +76,19 @@ void setupStateMachine()
 
   stateMachine.AddTransition(Bloqueado, Monitoreo, []() { return input == Forward; });
   stateMachine.AddTransition(Bloqueado, Monitoreo, []() { return input == Backward; });
-  stateMachine.AddTransition(Bloqueado, Inicio, []() { return input == Backward; });
+  stateMachine.AddTransition(Bloqueado, Inicio, []() { return input == Backward2; });
   stateMachine.AddTransition(Bloqueado, Inicio, []() { return input == Reset; });
   
   // Add actions
   stateMachine.SetOnEntering(Inicio, Contrasena);//llamar función del estado
-  stateMachine.SetOnEntering(Monitoreo, initTasks);
-  stateMachine.SetOnEntering(Monitoreo, Sensores);
-  stateMachine.SetOnEntering(Monitoreo, readPhoto);
-  stateMachine.SetOnEntering(Alarma, alarma);
-  stateMachine.SetOnEntering(Bloqueado, Bloq);
+  stateMachine.SetOnEntering(Monitoreo, funcionMonitoreo);
+  stateMachine.SetOnEntering(Alarma, funcionAlarma);
+  stateMachine.SetOnEntering(Bloqueado, funcionBloqueo);
 
   stateMachine.SetOnLeaving(Inicio, []() {Serial.println("Leaving A"); });
-  stateMachine.SetOnLeaving(Monitoreo, []() {Serial.println("Leaving B"); });
-  stateMachine.SetOnLeaving(Alarma, []() {Serial.println("Leaving C"); });
-  stateMachine.SetOnLeaving(Bloqueado, []() {Serial.println("Leaving D"); });
+  stateMachine.SetOnLeaving(Monitoreo, funcionFinMonitoreo);
+  stateMachine.SetOnLeaving(Alarma, funcionFinAlarma);
+  stateMachine.SetOnLeaving(Bloqueado, funcionFinBloqueo);
 }
 
 //Tareas
@@ -95,11 +96,48 @@ void Sensores(void);
 AsyncTask Task1(2300, true, Sensores);
 void readPhoto(void);
 AsyncTask Task2(1000, true, readPhoto);
+void Potenciometer(void);
+AsyncTask Task3(1500, true, Potenciometer);
+void alarma(void);
+AsyncTask Task4(3000, true, alarma);
+void Bloq(void);
+AsyncTask Task5(5000, true, Bloq);
 
+
+void funcionMonitoreo(){
+  Task1.Start();
+  Task2.Start();
+  Task3.Start();
+}
+
+void funcionFinMonitoreo(){
+  Task1.Stop();
+  Task2.Stop();
+  Task3.Stop();
+}  
+
+void funcionAlarma(){
+  Task4.Start();
+}  
+
+void funcionFinAlarma(){
+  Task4.Stop();
+}
+
+void funcionBloqueo(){
+  Task5.Start();
+}  
+
+void funcionFinBloqueo(){
+  Task5.Stop();
+}
+
+//leds
 const byte greenLed = A6;
 const byte blueLed = A5;
 const byte redLed = A4;
 
+Input currentInput = Input::Unknown;
 
 void setup() 
 {
@@ -115,51 +153,43 @@ void setup()
   setupStateMachine();  
   Serial.println("Start Machine Started");
 
+  dht.begin();
+  
   // Initial state
   stateMachine.SetState(Inicio, false, true);
   
   pinMode(greenLed, OUTPUT);
   pinMode(blueLed, OUTPUT);
   pinMode(redLed, OUTPUT);
-  
-  dht.begin();
+ 
 }
 
 void loop() 
 {
   // Read user input
-  input = static_cast<Input>(readInput());
-
+  //input = static_cast<Input>(Contrasena());
+  Contrasena();
+  
   // Update State Machine
   stateMachine.Update();
   //asignar tareas asincronicas
   Task1.Update();
   Task2.Update();
+  Task3.Update();
+  Task4.Update();
+  Task5.Update();
 }
 
-// Auxiliar function that reads the user input
-int readInput()
-{
-  Input currentInput = Input::Unknown;
-  if (Serial.available())
-  {
-    char incomingChar = Serial.read();
 
-    switch (incomingChar)
-    {
-      case 'R': currentInput = Input::Reset;  break;
-      case 'A': currentInput = Input::Backward; break;
-      case 'D': currentInput = Input::Forward; break;
-      default: break;
-    }
-  }
-
-  return currentInput;
-}
 
 // Auxiliar output functions that show the state debug
 void Contrasena() {
+  
+  if (Serial.available())
+  {
+
   char key = keypad.getKey();
+  char serialkey = Serial.read();
 
   if (key != NO_KEY) {
     if (key == 'D') { // Si se presiona la tecla 'D'
@@ -185,12 +215,8 @@ void Contrasena() {
       lcd.print("CLAVE");
       lcd.setCursor(4, 1);
       lcd.print("CORRECTA");
-      digitalWrite(greenLed, HIGH);
-      delay(5000);
-      digitalWrite(greenLed, LOW); // Apagar el LED verde
-      stateMachine.SetOnEntering(Monitoreo, initTasks);
-      stateMachine.SetOnEntering(Monitoreo, Sensores);
-      stateMachine.SetOnEntering(Monitoreo, readPhoto);
+      input = Input::Forward;
+
     } else { // Si la clave ingresada es incorrecta
       passwordAttempts++;
       if (passwordAttempts >= 3) { // Si se superaron los 3 intentos
@@ -199,16 +225,13 @@ void Contrasena() {
         lcd.print("SISTEMA");
         lcd.setCursor(3, 1);
         lcd.print("BLOQUEADO");
-        stateMachine.SetOnEntering(Bloqueado, Bloq);
+        currentInput = Input::Forward2;
       } else {
         lcd.clear();
         lcd.setCursor(5, 0);
         lcd.print("CLAVE");
         lcd.setCursor(3, 1);
         lcd.print("INCORRECTA");
-        digitalWrite(blueLed, HIGH);
-        delay(2000);
-        digitalWrite(blueLed, LOW); // Apagar el LED azul
       }
     }
     memset(enteredPassword, 0, sizeof(enteredPassword)); // Limpiar la clave ingresada
@@ -218,25 +241,27 @@ void Contrasena() {
     lcd.setCursor(6, 1);
     passwordReady = false; // Reiniciar la bandera
   }
+  }
+  
 }
 
-void initTasks(){
-   Task1.Start(); 
-   Task2.Start(); 
+void Potenciometer() {
+  Serial.println("Reading potentiometer:");
+  int potenciometerValue = analogRead(potenciometerPin); 
+  Serial.println(potenciometerValue);
 }
+
+float t = dht.readTemperature();
 
 void readPhoto(){
   Serial.println("hello read Photo: ");
   int sensorValue = analogRead(sensorPin);
   Serial.println(sensorValue);
 
-  float t = dht.readTemperature();
-
   if (sensorValue < 40 && t > 32) { 
-    stateMachine.SetOnEntering(Bloqueado, Bloq); // Cambiar al estado Bloqueado
+    currentInput = Input::Forward2;
   }
 }
-
 
 void Sensores(){ 
   //Temperatura
@@ -247,7 +272,6 @@ void Sensores(){
   // Sensor readings may also be up to 2 seconds 'old' (its a very slow sensor)
   float h = dht.readHumidity();
   // Read temperature as Celsius (the default)
-  float t = dht.readTemperature();
   // Read temperature as Fahrenheit (isFahrenheit = true)
   float f = dht.readTemperature(true);
 
@@ -275,57 +299,43 @@ void Sensores(){
   Serial.println(F("°F"));
 
   if(t > 30){
-    stateMachine.SetOnEntering(Alarma, alarma);
+    currentInput = Input::Forward;
   }
 }
 
-void alarma(){
-  
-  Task1.Stop();
-  Task2.Stop();
+void alarma() {
 
-  unsigned long previousMillis = 0;
+  static unsigned long previousMillis = 0;  
+  const long interval = 500;
 
-  for(int i=0; i<3; i++) {
+  unsigned long currentMillis = millis();
 
-    // Enciende led
-    digitalWrite(blueLed, HIGH);  
+  if(currentMillis - previousMillis >= interval) {
 
-    // Espera medio segundo
-    unsigned long currentMillis = millis();
-    while(currentMillis - previousMillis <= 500) {
-      currentMillis = millis(); 
-    }
     previousMillis = currentMillis;
 
-    // Apaga led    
-    digitalWrite(blueLed, LOW);
-
+    static boolean ledState = LOW;
+    
+    ledState = !ledState;
+    digitalWrite(blueLed, ledState); 
   }
-  stateMachine.SetOnEntering(Monitoreo, initTasks);
-  stateMachine.SetOnEntering(Monitoreo, Sensores);
-  stateMachine.SetOnEntering(Monitoreo, readPhoto);
+  currentInput = Input::Backward;
 }
 
 void Bloq(){
-  unsigned long previousMillis = 0;
+  static unsigned long previousMillis = 0;  
+  const long interval = 800;
 
-  for(int i=0; i<6; i++) {
+  unsigned long currentMillis = millis();
 
-    // Enciende led
-    digitalWrite(redLed, HIGH);  
+  if(currentMillis - previousMillis >= interval) {
 
-    // Espera medio segundo
-    unsigned long currentMillis = millis();
-    while(currentMillis - previousMillis <= 800) {
-      currentMillis = millis(); 
-    }
     previousMillis = currentMillis;
 
-    // Apaga led    
-    digitalWrite(redLed, LOW);
-
+    static boolean ledState = LOW;
+    
+    ledState = !ledState;
+    digitalWrite(redLed, ledState); 
   }
-
-  
-}
+  currentInput = Input::Reset;
+ }
